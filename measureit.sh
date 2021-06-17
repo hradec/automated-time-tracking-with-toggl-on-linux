@@ -27,13 +27,16 @@ function make_entry() {
     ep="not assigned"
   fi
 
-  if [ -n "$6" ]; then
+  [ "$project_id" != "" ] && echo -n "===> $project_id $(grep "$project_id" "$projects" | awk -F';' '{print $2}') | "
+
+
+  #if [ -n "$6" ]; then
     billable="false"
     eb="Not billable entry:"
-  else
-    billable="true"
-    eb="Billable entry:"
-  fi
+  #else
+  #  billable="true"
+  #  eb="Billable entry:"
+  #fi
 
   if [ -n "$project_id" ]; then
      json="{\"time_entry\":{\"description\":\"$1\",\"created_with\":\"measureit\",\"start\":\"$2\",\"duration\":$3,\"billable\":$billable,\"pid\":$project_id}}"
@@ -44,8 +47,8 @@ function make_entry() {
   curl -v -u $4:api_token \
     -H "Content-Type: application/json" \
     -d "$json" \
-    -X POST https://www.toggl.com/api/v8/time_entries 2>/dev/null >/dev/null
-  echo "$eb $1 $2 $3 sec $ep"
+    -X POST https://api.track.toggl.com/api/v8/time_entries 2>/dev/null >/dev/null
+  echo "---> $eb $1 $2 $3 sec $ep"
 }
 
 function import_projects() {
@@ -82,15 +85,17 @@ if [ -z "$STEP" ]; then
   STEP=1
 fi
 
+
 n=0
 wold=""
-told=$(date +"%Y-%m-%dT%H:%M:%S+01:00")
+told=$(date -u +"%Y-%m-%dT%H:%M:%S+02:00")
 
 get_api_token(){
-    if [ $TUSER == "--token"] ; then
+    if [ "$TUSER" == "--token" ] ; then
         echo $TPASS
     else
         curl -u $TUSER:$TPASS -X GET https://api.track.toggl.com/api/v8/me 2>/dev/null | jq -r ".data.api_token"
+    fi
 }
 
 api_token=$(get_api_token)
@@ -98,7 +103,7 @@ import_projects $api_token;
 
 while sleep $STEP; do
   w=$(xdotool getactivewindow getwindowname 2> /dev/null|tr '[:upper:]' '[:lower:]'|iconv )
-  t=$(date +"%Y-%m-%dT%H:%M:%S+01:00")
+  t=$(date -u +"%Y-%m-%dT%H:%M:%S+02:00")
   if [ "$w" != "$wold" ] && [ -n "$w" ]; then
     ig=$(cat $ignored | grep -ve "^$" | while read i; do
       if [ -n "$(echo -n "$wold" | grep "$i")" ]; then
@@ -117,6 +122,20 @@ while sleep $STEP; do
         echo "yes";
       fi
     done);
+    notbill=""
+
+    project_id=$(cat $projects | grep -ve "^$" | while read i; do
+      pid=$(echo $i | cut -d";" -f1)
+      q=$(echo $i | cut -d";" -f2)
+      for n in $(echo $i | awk -F"$q" '{print $2}' | sed 's/;/\n/g') ; do
+	if [ "$(echo -n "$wold" | grep "$n")" != "" ] ; then
+		echo "$pid";
+		break;
+	fi
+      done
+    done);
+    #[ "$project_id" != "" ] && echo -n "===> $project_id $(grep "$project_id" "$projects" | awk -F';' '{print $2}') | "
+
     if [ -z "$ig" ] && [ $n -gt $INTERVAL ]; then
       api_token=$(get_api_token)
       make_entry "$wold" "$told" "$n" "$api_token" "$project_id" "$notbill"
@@ -124,6 +143,7 @@ while sleep $STEP; do
     n=0
     wold="$w"
     told="$t"
+    echo $w $t
   fi
   n=$(expr $n + $STEP)
 done
